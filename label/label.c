@@ -42,6 +42,7 @@ int main(int argc, char *argv[])
 	bool version_only = false;
 	int serial_mode = 0;
 	int flags = 0;
+	unsigned long volume_serial;
 
 	init_user_input(&ui);
 
@@ -77,11 +78,11 @@ int main(int argc, char *argv[])
 	if (version_only)
 		exit(EXIT_FAILURE);
 
-	if (argc < 2)
+	if (argc - optind != 1 && flags != EXFAT_SET_VOLUME_LABEL &&
+	    flags != EXFAT_SET_VOLUME_SERIAL)
 		usage();
 
-	memset(ui.dev_name, 0, sizeof(ui.dev_name));
-	snprintf(ui.dev_name, sizeof(ui.dev_name), "%s", argv[serial_mode + 1]);
+	ui.dev_name = argv[serial_mode + 1];
 
 	ret = exfat_get_blk_dev_info(&ui, &bd);
 	if (ret < 0)
@@ -92,36 +93,26 @@ int main(int argc, char *argv[])
 		if (flags == EXFAT_GET_VOLUME_SERIAL) {
 			ret = exfat_show_volume_serial(bd.dev_fd);
 		} else if (flags == EXFAT_SET_VOLUME_SERIAL) {
-			ui.volume_serial = strtoul(argv[3], NULL, 0);
+			ret = exfat_parse_ulong(argv[3], &volume_serial);
+			if (volume_serial > UINT_MAX)
+				ret = -ERANGE;
+
+
+			if (ret < 0) {
+				exfat_err("invalid serial number(%s)\n", argv[3]);
+				goto close_fd_out;
+			}
+
+			ui.volume_serial = volume_serial;
 			ret = exfat_set_volume_serial(&bd, &ui);
 		}
 	} else {
 		struct exfat *exfat;
-		struct pbr *bs;
 
-		ret = read_boot_sect(&bd, &bs);
-		if (ret)
-			goto close_fd_out;
-
-		exfat = exfat_alloc_exfat(&bd, bs);
+		exfat = exfat_alloc_exfat(&bd, NULL, NULL);
 		if (!exfat) {
-			free(bs);
 			ret = -ENOMEM;
 			goto close_fd_out;
-		}
-
-		exfat->root = exfat_alloc_inode(ATTR_SUBDIR);
-		if (!exfat->root) {
-			ret = -ENOMEM;
-			goto free_exfat;
-		}
-
-		exfat->root->first_clus = le32_to_cpu(exfat->bs->bsx.root_cluster);
-		if (exfat_root_clus_count(exfat)) {
-			exfat_err("failed to follow the cluster chain of root\n");
-			exfat_free_inode(exfat->root);
-			ret = -EINVAL;
-			goto free_exfat;
 		}
 
 		/* Mode to change or display volume label */
@@ -130,9 +121,7 @@ int main(int argc, char *argv[])
 		else if (flags == EXFAT_SET_VOLUME_LABEL)
 			ret = exfat_set_volume_label(exfat, argv[2]);
 
-free_exfat:
-		if (exfat)
-			exfat_free_exfat(exfat);
+		exfat_free_exfat(exfat);
 	}
 
 close_fd_out:
