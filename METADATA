@@ -17,6 +17,7 @@ third_party {
   identifier {
     type: "Git"
     value: "https://github.com/exfatprogs/exfatprogs/"
-    version: "1.2.8"
+    version: "b8c3f5de4330fab4920739833632d5e3aa1c82dc"
+    closest_version: "1.2.8"
   }
 }
